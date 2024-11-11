@@ -1,10 +1,16 @@
 'use client'
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function Login() {
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+          // Código que depende del cliente
+          console.log('Esto se ejecuta solo en el cliente');
+        }
+      }, []);
     const [formData, setFormData] = useState({
         email: '',
         password: ''

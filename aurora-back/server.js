@@ -29,61 +29,89 @@ app.get('/api/orders', (req, res) => {
 
 app.post('/api/orders', (req, res) => {
     const {
-        customerName, contact, deliveryAddress, tableNumber, orderMode, subtotal, tip, taxes, discount, total, paymentMethod, paymentStatus
+        customerName, contact, deliveryAddress, tableNumber, orderMode, subtotal, discount, total, paymentMethod, paymentStatus = 'pending', items
     } = req.body;
-    const query = `
-        INSERT INTO Orders (customerName, contact, deliveryAddress, tableNumber, orderMode, subtotal, tip, taxes, discount, total, paymentMethod, paymentStatus)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+
+    // Asegúrate de que los campos requeridos estén presentes
+    if (!customerName || !tableNumber || !items || items.length === 0) {
+        return res.status(400).json({ error: 'Faltan campos requeridos' });
+    }
+
+    const orderQuery = `
+        INSERT INTO Orders (customerName, contact, deliveryAddress, tableNumber, orderMode, subtotal, discount, total, paymentMethod, paymentStatus)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-    db.query(query, [customerName, contact, deliveryAddress, tableNumber, orderMode, subtotal, tip, taxes, discount, total, paymentMethod, paymentStatus], (err, result) => {
+    db.query(orderQuery, [customerName, contact, deliveryAddress, tableNumber, orderMode, subtotal, discount, total, paymentMethod, paymentStatus], (err, result) => {
         if (err) {
             console.error('Error al agregar el pedido:', err);
             return res.status(500).json({ error: 'Error al agregar el pedido' });
         }
-        res.status(201).json({ id: result.insertId, customerName, total, status: 'pending' });
+        const orderId = result.insertId;
+        const itemQueries = items.map(item => {
+            return new Promise((resolve, reject) => {
+                const itemQuery = `
+                    INSERT INTO OrderItems (orderId, menuItemId, quantity)
+                    VALUES (?, ?, ?)
+                `;
+                db.query(itemQuery, [orderId, item.id, item.quantity], (err, result) => {
+                    if (err) {
+                        return reject(err);
+                    }
+                    resolve(result);
+                });
+            });
+        });
+        Promise.all(itemQueries)
+            .then(() => res.status(201).json({ id: orderId, customerName, total, status: 'pending' }))
+            .catch(err => {
+                console.error('Error al registrar los productos del pedido:', err);
+                res.status(500).json({ error: 'Error al registrar los productos del pedido' });
+            });
     });
 });
 
 app.put('/api/orders/:id', (req, res) => {
     const { id } = req.params;
-    const { status, paymentStatus } = req.body;
+    const { customerName, tableNumber, items } = req.body;
     const query = `
-        UPDATE Orders SET status = ?, paymentStatus = ?
+        UPDATE Orders SET customerName = ?, tableNumber = ?
         WHERE id = ?
     `;
-    db.query(query, [status, paymentStatus, id], (err, result) => {
+    db.query(query, [customerName, tableNumber, id], (err, result) => {
         if (err) {
             console.error('Error al actualizar el pedido:', err);
             return res.status(500).json({ error: 'Error al actualizar el pedido' });
         }
-
-        // Si el pedido se marca como pagado, registrar la venta
-        if (paymentStatus === 'paid') {
-            const saleQuery = `
-                INSERT INTO Sales (orderId, customerName, total, paymentMethod)
-                SELECT id, customerName, total, paymentMethod FROM Orders WHERE id = ?
-            `;
-            db.query(saleQuery, [id], (err, saleResult) => {
-                if (err) {
-                    console.error('Error al registrar la venta:', err);
-                    return res.status(500).json({ error: 'Error al registrar la venta' });
-                }
-                res.json({ message: 'Pedido actualizado y venta registrada' });
-            });
-        } else {
-            res.json({ message: 'Pedido actualizado' });
-        }
+        res.json({ message: 'Pedido actualizado' });
     });
 });
 
 app.delete('/api/orders/:id', (req, res) => {
     const { id } = req.params;
-    db.query('DELETE FROM Orders WHERE id = ?', [id], (err, result) => {
+
+    // Primero, elimina las referencias en OrderItems
+    db.query('DELETE FROM OrderItems WHERE orderId = ?', [id], (err, result) => {
         if (err) {
-            console.error('Error al eliminar el pedido:', err);
-            return res.status(500).json({ error: 'Error al eliminar el pedido' });
+            console.error('Error al eliminar los productos del pedido:', err);
+            return res.status(500).json({ error: 'Error al eliminar los productos del pedido' });
         }
-        res.json({ message: 'Pedido eliminado' });
+
+        // Luego, elimina las referencias en Sales
+        db.query('DELETE FROM Sales WHERE orderId = ?', [id], (err, result) => {
+            if (err) {
+                console.error('Error al eliminar las ventas del pedido:', err);
+                return res.status(500).json({ error: 'Error al eliminar las ventas del pedido' });
+            }
+
+            // Finalmente, elimina el pedido
+            db.query('DELETE FROM Orders WHERE id = ?', [id], (err, result) => {
+                if (err) {
+                    console.error('Error al eliminar el pedido:', err);
+                    return res.status(500).json({ error: 'Error al eliminar el pedido' });
+                }
+                res.json({ message: 'Pedido eliminado' });
+            });
+        });
     });
 });
 
@@ -164,7 +192,12 @@ app.delete('/api/products/:id', (req, res) => {
 
 // Ruta para obtener las ventas
 app.get('/api/sales', (req, res) => {
-    const query = 'SELECT * FROM Sales';
+    const query = `
+        SELECT Menu.name, SUM(OrderItems.quantity) AS totalSold
+        FROM OrderItems
+        JOIN Menu ON OrderItems.menuItemId = Menu.id
+        GROUP BY Menu.name
+    `;
     db.query(query, (err, results) => {
         if (err) {
             console.error('Error al obtener las ventas:', err);

@@ -5,6 +5,9 @@ import { useState, useEffect } from 'react';
 export default function Inventory({ onBackToMenu }) {
     const [products, setProducts] = useState([]);
     const [newProduct, setNewProduct] = useState({ name: '', quantity: 0, unit: '', alertLevel: 0 });
+    const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 5;
 
     useEffect(() => {
         const fetchProducts = async () => {
@@ -19,7 +22,7 @@ export default function Inventory({ onBackToMenu }) {
                 console.error('Error:', error);
             }
         };
-    
+
         fetchProducts();
     }, []);
 
@@ -32,11 +35,11 @@ export default function Inventory({ onBackToMenu }) {
                 },
                 body: JSON.stringify(newProduct)
             });
-    
+
             if (!response.ok) {
                 throw new Error('Error al agregar el producto');
             }
-    
+
             const data = await response.json();
             setProducts([...products, data]);
             setNewProduct({ name: '', quantity: 0, unit: '', alertLevel: 0 });
@@ -55,16 +58,22 @@ export default function Inventory({ onBackToMenu }) {
             const response = await fetch(`http://localhost:3001/api/products/${id}`, {
                 method: 'DELETE'
             });
-    
+
             if (!response.ok) {
                 throw new Error('Error al eliminar el producto');
             }
-    
+
             setProducts(products.filter(product => product.id !== id));
         } catch (error) {
             console.error('Error:', error);
         }
     };
+
+    const filteredProducts = products.filter(product =>
+        product.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    const paginatedProducts = filteredProducts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
     return (
         <div className="flex flex-col w-full p-8 bg-[#2C2F33] rounded-2xl shadow-xl">
@@ -72,7 +81,6 @@ export default function Inventory({ onBackToMenu }) {
             <p className="text-sm font-light text-[#6B7280] mb-4">Aquí puedes gestionar los productos en inventario.</p>
 
             <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-4">
-                <label className="text-[#E5E7EB]">Nombre del producto</label>
                 <input
                     type="text"
                     name="name"
@@ -81,7 +89,6 @@ export default function Inventory({ onBackToMenu }) {
                     placeholder="Nombre del producto"
                     className="p-2 rounded bg-[#3B3F45] text-[#E5E7EB]"
                 />
-                <label className="text-[#E5E7EB]">Cantidad</label>
                 <input
                     type="number"
                     name="quantity"
@@ -90,7 +97,6 @@ export default function Inventory({ onBackToMenu }) {
                     placeholder="Cantidad"
                     className="p-2 rounded bg-[#3B3F45] text-[#E5E7EB]"
                 />
-                <label className="text-[#E5E7EB]">Unidad (ej. kg, litros)</label>
                 <input
                     type="text"
                     name="unit"
@@ -99,7 +105,6 @@ export default function Inventory({ onBackToMenu }) {
                     placeholder="Unidad (ej. kg, litros)"
                     className="p-2 rounded bg-[#3B3F45] text-[#E5E7EB]"
                 />
-                <label className="text-[#E5E7EB]">Nivel de alerta</label>
                 <input
                     type="number"
                     name="alertLevel"
@@ -113,30 +118,38 @@ export default function Inventory({ onBackToMenu }) {
                 </button>
             </div>
 
-            <table className="w-full text-left text-[#E5E7EB]">
-                <thead>
-                    <tr>
-                        <th className="border-b border-[#4F46E5] p-2">Nombre</th>
-                        <th className="border-b border-[#4F46E5] p-2">Cantidad</th>
-                        <th className="border-b border-[#4F46E5] p-2">Unidad</th>
-                        <th className="border-b border-[#4F46E5] p-2">Nivel de Alerta</th>
-                        <th className="border-b border-[#4F46E5] p-2">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {products.map(product => (
-                        <tr key={product.id}>
-                            <td className="border-b border-[#4F46E5] p-2">{product.name}</td>
-                            <td className="border-b border-[#4F46E5] p-2">{product.quantity}</td>
-                            <td className="border-b border-[#4F46E5] p-2">{product.unit}</td>
-                            <td className="border-b border-[#4F46E5] p-2">{product.alertLevel}</td>
-                            <td className="border-b border-[#4F46E5] p-2">
-                                <button onClick={() => deleteProduct(product.id)} className="text-red-500">Eliminar</button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+            <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar producto..."
+                className="mb-4 p-2 rounded bg-[#3B3F45] text-[#E5E7EB] w-full"
+            />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {paginatedProducts.map(product => (
+                    <div key={product.id} className="bg-[#3B3F45] p-4 rounded-lg shadow-md">
+                        <h4 className="text-lg font-bold text-[#ffffff]">{product.name}</h4>
+                        <p className="text-[#E5E7EB]">Cantidad: {product.quantity} {product.unit}</p>
+                        <p className="text-[#E5E7EB]">Nivel de Alerta: {product.alertLevel}</p>
+                        <div className="flex justify-end mt-2">
+                            <button onClick={() => deleteProduct(product.id)} className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-700">Eliminar</button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            <div className="flex justify-center mt-4">
+                {Array.from({ length: Math.ceil(filteredProducts.length / itemsPerPage) }, (_, i) => (
+                    <button
+                        key={i}
+                        onClick={() => setCurrentPage(i + 1)}
+                        className={`px-3 py-1 mx-1 rounded ${currentPage === i + 1 ? 'bg-[#4F46E5] text-white' : 'bg-[#3B3F45] text-[#E5E7EB]'}`}
+                    >
+                        {i + 1}
+                    </button>
+                ))}
+            </div>
 
             <button
                 onClick={onBackToMenu}
